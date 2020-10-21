@@ -1,6 +1,7 @@
-#!/usr/local/bin/perl
+#
 
 use Device::SerialPort qw( :PARAM :STAT 0.07 );
+use Time::HiRes qw( usleep );
 
 #my $SERIAL  = "/dev/cuaU0";   for FreeBSD
 #my $SERIAL  = "/dev/ttyUSB0"; for Linux
@@ -13,9 +14,7 @@ local @SwapDevice = ( 0, 1, 2, 3, 4 );
 my $STALL_DEFAULT = 10;
 my $timeout       = $STALL_DEFAULT;
 my $BreakPulse    = 4;
-my $Sleep2Micro   = 0.002;
-my $Sleep100Mil   = 0.1;
-my $Sleep500Mil   = 0.5;
+my $WaitResponse  = 4000;
 my $Sleep760Mil   = 0.76;
 my $ID_RETRY      = 3;
 
@@ -80,7 +79,7 @@ sub reset2840b {
     my $port = $_[0];
 
     $port->pulse_break_on($BreakPulse);             # Reset 2480B
-    select( undef, undef, undef, $Sleep2Micro );    # Wait for 2480B
+    usleep(WaitResponse);    # Wait for 2480B
 }
 
 sub reset1wire {
@@ -94,7 +93,7 @@ sub reset1wire {
         print "Can't RESET";
         exit 1;
     }
-    select( undef, undef, undef, $Sleep100Mil );    # Wait for 2480B
+    usleep(WaitResponse);    # Wait for 2480B
     ( $count, $out ) = $port->read(1);
     @ret = unpack "c", $out;
 
@@ -113,7 +112,7 @@ sub reset1wire_flush {
         print "Can't RESET";
         exit 1;
     }
-    select( undef, undef, undef, $Sleep100Mil );    # Wait for 2480B
+    usleep(WaitResponse);    # Wait for 2480B
     ( $count, $out ) = $port->read(8);
     @ret = unpack "c", $out;
 
@@ -139,7 +138,8 @@ sub data_writeread1 {
     my $port  = $_[0];
     my $wdata = $_[1];
 
-    if ( $wdata == $SIF_COMMAND ) {
+# 1-wireバスにSIF_COMMAND(0xe3)を送る場合0xe3を2回DS2480Bに送る
+    if ( $wdata == $SIF_COMMAND ) { 
         writeread1( $port, $wdata );
     }
     $ret = writeread1( $port, $wdata );
@@ -150,6 +150,7 @@ sub data_write1 {
     my $port  = $_[0];
     my $wdata = $_[1];
 
+# 1-wireバスにSIF_COMMAND(0xe3)を送る場合0xe3を2回DS2480Bに送る
     if ( $wdata == $SIF_COMMAND ) {
         write1( $port, $wdata );
     }
@@ -170,7 +171,7 @@ sub writeread1 {
         exit 1;
     }
     else {
-        select( undef, undef, undef, $Sleep2Micro );    # Wait for 2480B
+        usleep(WaitResponse);    # Wait for 2480B
         $count = 0;
         while ( $count == 0 ) {
             ( $count, $out ) = $port->read(1);
@@ -196,7 +197,7 @@ sub convert_all {
     data_writeread1( $port, $ROM_SKIP );
     data_writeread1( $port, $CMD_CONV );
     write1( $port, $SIF_COMMAND );    # set command mode
-    select( undef, undef, undef, $Sleep760Mil );
+    usleep(WaitResponse);
     $presence = reset1wire($port);
     return 1;
 }
@@ -220,7 +221,7 @@ sub read_scratchpad {
     #    printf("\n");
     #    $port->read(8);
     data_writeread1( $port, $CMD_RDPAD );
-    select( undef, undef, undef, $Sleep2Micro );    # Wait for 2480B
+    usleep(WaitResponse);    # Wait for 2480B
     for ( $i = 0 ; $i < 9 ; $i++ ) {
         $out = writeread1( $port, 0xff );
         $scpad[$i] = $out & 0xff;
@@ -380,25 +381,25 @@ sub search_acc {
 
     ( $port, @search_data ) = @_;
     reset1wire($port);
-    select( undef, undef, undef, $Sleep2Micro );    # Wait for 2480B
-    write1( $port, $SIF_DATA );                     # data mode
+    usleep(WaitResponse);                           # Wait for 2480B
+    write1( $port, $SIF_DATA );                     # data mode    
     write1( $port, $ROM_SEARCH );                   # Search ROM cmd
+    usleep(WaitResponse);
+    my($counter, $saw) = $port->read(255);    
     write1( $port, $SIF_COMMAND );                  # command mode
     write1( $port, $SIF_ACCON );                    # Search Accelerarator On
     write1( $port, $SIF_DATA );                     # data mode
-
     for ( $i = 0 ; $i < 16 ; $i++ ) {               # search init data
         $out = data_write1( $port, $search_data[$i] );
     }
     write1( $port, $SIF_COMMAND );                  # command mode
     write1( $port, $SIF_ACCOFF );                   # Search Accelerarator Off
     write1( $port, $SIF_DATA );                     # data mode
-    for ( $i = 0 ; $i < 17 ; $i++ ) {
-        ( $countr, $out ) = $port->read(1);
-        @ret = unpack "c", $out;
-        if ( $i > 0 ) {
-            $acc_out[ $i - 1 ] = $ret[0] & 0xff;
-        }
+    usleep(WaitResponse);
+    for ( $i = 0 ; $i < 16 ; $i++ ) {
+        ($countr,$out) = $port->read(1);
+        @ret = unpack "c", $out;                    # uint8_t として扱う
+        $acc_out[$i] = $ret[0];
     }
     $out = write1( $port, $SIF_COMMAND );           # command mode
     reset1wire($port);
