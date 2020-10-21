@@ -15,7 +15,6 @@ my $STALL_DEFAULT = 10;
 my $timeout       = $STALL_DEFAULT;
 my $BreakPulse    = 4;
 my $WaitResponse  = 4000;
-my $Sleep760Mil   = 0.76;
 my $ID_RETRY      = 3;
 
 # DS2480B
@@ -396,10 +395,10 @@ sub search_acc {
     write1( $port, $SIF_ACCOFF );                   # Search Accelerarator Off
     write1( $port, $SIF_DATA );                     # data mode
     usleep(WaitResponse);
-    for ( $i = 0 ; $i < 16 ; $i++ ) {
-        ($countr,$out) = $port->read(1);
-        @ret = unpack "c", $out;                    # uint8_t として扱う
-        $acc_out[$i] = $ret[0];
+    my($counter, $saw) = $port->read(255);
+    @ret = unpack "c*", $saw;
+    for ($i =0; $i < $counter; $i++) {
+	    $acc_out[$i] = $ret[$i];
     }
     $out = write1( $port, $SIF_COMMAND );           # command mode
     reset1wire($port);
