@@ -2,8 +2,12 @@
 
 use Device::SerialPort qw( :PARAM :STAT 0.07 );
 
-my $SERIAL  = "/dev/cuaU0";
-my $OUTFILE = "/usr/local/var/log/chktemp2.log";
+#my $SERIAL  = "/dev/cuaU0";   for FreeBSD
+#my $SERIAL  = "/dev/ttyUSB0"; for Linux
+#  
+my $SERIAL  = "/dev/ttyS2"; # for cygwin
+#my $OUTFILE = "/usr/local/var/log/chktemp2.log";
+my $OUTFILE = "/dev/stdout";
 local @SwapDevice = ( 0, 1, 2, 3, 4 );
 
 my $STALL_DEFAULT = 10;
