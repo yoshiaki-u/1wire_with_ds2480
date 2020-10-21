@@ -5,8 +5,9 @@ use Time::HiRes qw( usleep );
 
 #my $SERIAL  = "/dev/cuaU0";   for FreeBSD
 #my $SERIAL  = "/dev/ttyUSB0"; for Linux
-#  
-my $SERIAL  = "/dev/ttyS2"; # for cygwin
+#
+my $SERIAL = "/dev/ttyS2";    # for cygwin
+
 #my $OUTFILE = "/usr/local/var/log/chktemp2.log";
 my $OUTFILE = "/dev/stdout";
 local @SwapDevice = ( 0, 1, 2, 3, 4 );
@@ -77,8 +78,8 @@ sub init_serial {
 sub reset2840b {
     my $port = $_[0];
 
-    $port->pulse_break_on($BreakPulse);             # Reset 2480B
-    usleep(WaitResponse);    # Wait for 2480B
+    $port->pulse_break_on($BreakPulse);    # Reset 2480B
+    usleep(WaitResponse);                  # Wait for 2480B
 }
 
 sub reset1wire {
@@ -87,12 +88,12 @@ sub reset1wire {
     my @ret;
 
     $out   = pack "c", 0xc1;
-    $count = $port->write($out);                    # reset w1-bus
+    $count = $port->write($out);           # reset w1-bus
     if ( $count == 0 ) {
         print "Can't RESET";
         exit 1;
     }
-    usleep(WaitResponse);    # Wait for 2480B
+    usleep(WaitResponse);                  # Wait for 2480B
     ( $count, $out ) = $port->read(1);
     @ret = unpack "c", $out;
 
@@ -111,7 +112,7 @@ sub reset1wire_flush {
         print "Can't RESET";
         exit 1;
     }
-    usleep(WaitResponse);    # Wait for 2480B
+    usleep(WaitResponse);           # Wait for 2480B
     ( $count, $out ) = $port->read(8);
     @ret = unpack "c", $out;
 
@@ -137,8 +138,8 @@ sub data_writeread1 {
     my $port  = $_[0];
     my $wdata = $_[1];
 
-# 1-wireバスにSIF_COMMAND(0xe3)を送る場合0xe3を2回DS2480Bに送る
-    if ( $wdata == $SIF_COMMAND ) { 
+    # 1-wireバスにSIF_COMMAND(0xe3)を送る場合0xe3を2回DS2480Bに送る
+    if ( $wdata == $SIF_COMMAND ) {
         writeread1( $port, $wdata );
     }
     $ret = writeread1( $port, $wdata );
@@ -149,7 +150,7 @@ sub data_write1 {
     my $port  = $_[0];
     my $wdata = $_[1];
 
-# 1-wireバスにSIF_COMMAND(0xe3)を送る場合0xe3を2回DS2480Bに送る
+    # 1-wireバスにSIF_COMMAND(0xe3)を送る場合0xe3を2回DS2480Bに送る
     if ( $wdata == $SIF_COMMAND ) {
         write1( $port, $wdata );
     }
@@ -225,7 +226,7 @@ sub read_scratchpad {
         $out = writeread1( $port, 0xff );
         $scpad[$i] = $out & 0xff;
     }
-    write1( $port, $SIF_COMMAND );                  # set command mode
+    write1( $port, $SIF_COMMAND );    # set command mode
     $presence = reset1wire($port);
     return @scpad;
 }
@@ -380,27 +381,28 @@ sub search_acc {
 
     ( $port, @search_data ) = @_;
     reset1wire($port);
-    usleep(WaitResponse);                           # Wait for 2480B
-    write1( $port, $SIF_DATA );                     # data mode    
-    write1( $port, $ROM_SEARCH );                   # Search ROM cmd
+    usleep(WaitResponse);             # Wait for 2480B
+    write1( $port, $SIF_DATA );       # data mode
+    write1( $port, $ROM_SEARCH );     # Search ROM cmd
     usleep(WaitResponse);
-    my($counter, $saw) = $port->read(255);    
-    write1( $port, $SIF_COMMAND );                  # command mode
-    write1( $port, $SIF_ACCON );                    # Search Accelerarator On
-    write1( $port, $SIF_DATA );                     # data mode
-    for ( $i = 0 ; $i < 16 ; $i++ ) {               # search init data
+    my ( $counter, $saw ) = $port->read(255);
+    write1( $port, $SIF_COMMAND );    # command mode
+    write1( $port, $SIF_ACCON );      # Search Accelerarator On
+    write1( $port, $SIF_DATA );       # data mode
+
+    for ( $i = 0 ; $i < 16 ; $i++ ) { # search init data
         $out = data_write1( $port, $search_data[$i] );
     }
-    write1( $port, $SIF_COMMAND );                  # command mode
-    write1( $port, $SIF_ACCOFF );                   # Search Accelerarator Off
-    write1( $port, $SIF_DATA );                     # data mode
+    write1( $port, $SIF_COMMAND );    # command mode
+    write1( $port, $SIF_ACCOFF );     # Search Accelerarator Off
+    write1( $port, $SIF_DATA );       # data mode
     usleep(WaitResponse);
-    my($counter, $saw) = $port->read(255);
+    my ( $counter, $saw ) = $port->read(255);
     @ret = unpack "c*", $saw;
-    for ($i =0; $i < $counter; $i++) {
-	    $acc_out[$i] = $ret[$i];
+    for ( $i = 0 ; $i < $counter ; $i++ ) {
+        $acc_out[$i] = $ret[$i];
     }
-    $out = write1( $port, $SIF_COMMAND );           # command mode
+    $out = write1( $port, $SIF_COMMAND );    # command mode
     reset1wire($port);
     return @acc_out;
 }
