@@ -21,8 +21,17 @@ uint8_t SIF_DSO     = 0x51; // 0 101 000 1 DSO/WORT (3us)
 uint8_t SIF_RBR9600B  = 0x71; // set Baudrate 9600
 uint8_t SIF_RBR19200B = 0x73; // set Baudrate 19200
 uint8_t SIF_RBR57600B = 0x75; // set Baudrate 57600
-#define ACCEL_WORDS 16
-uint8_t acceler_data[ACCEL_WORDS];
+uint8_t SIF_RBR115200B = 0x77; // set Baudrate 115200
+int     DEFAULT_BAUD = 9600;
+
+#define SMAPSIZE 16
+#define RD_SIZE 8
+#define ROMID_SIZE RD_SIZE
+
+#define DISCRE_BUSERR -1
+#define DISCRE_NO     -2
+#define SEARCH_WAIT    2  // 2ms wait
+//uint8_t acceler_data[ACCEL_WORDS];
 
 //DS18B20 command
 uint8_t SCMD_CONV   = 0x44; // temprature conversion start
@@ -33,9 +42,6 @@ int     SCPAD_SIZE  = 9;
 uint8_t ROM_SEARCH = 0xf0;
 uint8_t ROM_MATCH  = 0x55;
 uint8_t ROM_SKIP   = 0xcc;
-int     ROMID_SIZE = 8;
-
-int     DS2480BAUD = 9600;
 
 // Timeout
 // uTimeLib
@@ -91,7 +97,7 @@ void setup() {
   
   Serial.begin(115200);
   while (!Serial);
-  Serial2.begin(DS2480BAUD,SERIAL_8N1,RX1PIN,TX1PIN);
+  Serial2.begin(DEFAULT_BAUD,SERIAL_8N1,RX1PIN,TX1PIN);
   while (!Serial2);
   
   Serial.println("\r\n***** Chip Information *****");
@@ -201,6 +207,358 @@ int init_ds2480(){
   return(1);
 }
 
+// DS2480コンフィギュレーションレジスタの定義
+class confDS2480
+{
+  private:
+    uint8_t PDSRC;
+    uint8_t PPD;
+    uint8_t SPUD;
+    uint8_t W1LT;
+    uint8_t DSOWRT;
+    uint8_t LOAD;
+    uint8_t RBR;
+    HardwareSerial *pSrDS2480;
+    uint8_t RXPIN;
+    uint8_t TXPIN;
+  public:
+    resetconf()
+    {
+      PDSRC = 0b00010000;
+      PPD   = 0b00100000;
+      SPUD  = 0b00110000;
+      W1LT  = 0b00100000;
+      DSOWRT= 0b01010000;
+      LOAD  = 0b01100000;
+      RBR   = 0b01110000;
+
+    };
+    
+    confDS2480(
+      const HardwareSerial *pDS2480,
+      const uint8_t rxPin,
+      const uint8_t txPin)
+    {
+      RXPIN = rxPin;
+      TXPIN = txPin;
+      ds2480_master_reset();
+      resetconf();
+      pSrDS2480 = pDS2480;
+      pSrDS2480->begin(DEFAULT_BAUD,SERIAL_8N1,RXPIN,TXPIN);
+      while(! *pSrDS2480);
+      bus_reset();
+    };
+    uint8_t setBaud(int b);
+};
+
+uint8_t confDS2480::setBaud(int b){
+  uint8_t confw, retb;
+  bus_reset();
+    switch (b) {
+    case 9600:
+      confw = SIF_RBR9600B;
+      break;
+    case 19200:
+      confw = SIF_RBR19200B;
+      break;
+    case 57600:
+      confw = SIF_RBR57600B;
+      break;
+    case 115200:
+      confw = SIF_RBR115200B;
+      break;
+    default:
+      return FALSE;
+  }
+  retb = writeread1(confw);
+  if (retb == (confw & 0xfe)) {
+    pSrDS2480->end;
+    delay(10);
+    pSrDS2480->begin(b,SERIAL_8N1,RXPIN,TXPIN);
+    while(! *pSrDS2480);
+    bus_reset();
+    return(retb);
+  } else {
+    return FALSE;
+  }
+}
+
+class SearchMap
+{
+  uint8_t rdmap[SMAPSIZE];
+  uint8_t r_map[RD_SIZE];
+  uint8_t d_map[RD_SIZE];
+
+  SearchMap()
+  {
+    int i;
+    for(i = 0; i < SMAPSIZE; i++){
+      rdmap[i] = 0;
+    }
+    for(i = 0; i < RD_SIZE; i++){
+      r_map[i] = d_map[i] = 0;
+    }
+  }
+  // サーチの実行
+  int rom_serch()
+  {
+    uint8_t ret;
+    uint8_t rdata[SMAPSIZE];
+    int i;
+    
+    ret = writeread1(SIF_RESET);
+    if (ret != 0xcd || ret != 0xed) {
+        return false;
+    }
+    Serial2.write(SIF_DATA);
+    Serial2.write(ROM_SEARCH);
+    Serial2.write(SIF_COMMAND);
+    Serial2.write(SIF_ACCON);
+    Serial2.write(SIF_DATA);
+    for(i = 0; i < SMAPSIZE; i++){
+      Serial2.write(rdmap[i]);
+    }
+    Serial2.write(SIF_COMMAND);
+    Serial2.write(SIF_ACCOFF);
+    ret = Serial2.readBytes(rdata,SMAPSIZE);
+    
+  }
+  // ROMIDの取得
+  uint64_t getID()
+  {
+    // ROMIDはrdmap[15]を上位としてrdmap[15]～rdmap[0]各バイトの7,5,3,1bit目を並べたもの
+    int i, j;
+    int rbit; 
+    uint64_t result = 0;
+    for (i = SMAPSIZE - 1; i >= 0; i--) {
+      rbit = 0b10000000; //rbitの8bit内の最上位(7)bit = 1
+      for (j = 0; j < 4; j++) {
+        result <<= 1;
+        if (rdmap[i] & rbit) {
+          result |= 1
+        }
+        rbit >>=2; // 7 -> 5 -> 3 -> 1
+      }
+    }
+    return(result);
+  }
+  
+  // 最大不一致点を求める
+  int discre()
+  {
+    int i, j;
+    int dbit;
+    int descrepancy;
+    
+    if ((rdmap[15] & 0b11000000) == 0b11000000) {
+      return DISCRE_BUSERR; // bus error
+    }
+    descrepancy = 63;
+    for ( i = SMAPSIZE - 1; i >= 0; i--) {
+      dbit = 0b01000000; //dbitの8bit内の最上位(6)bit = 1
+      for (j = 0; j < 4; j++) {
+        if (rdmap[i] & dbit) {
+          return descrepancy;
+        }
+        dbit >>= 2; // 6 -> 4 -> 2 -> 0
+        descrepancy --;
+      }
+    }
+    return DISCRE_NO; //不一致点が存在しない
+  }
+
+  // 最大不一致点を引数として次のサーチデータを作成する
+  // 最大不一致点：0～63
+  int set_nextrdmap(int descre)
+  {
+    int descre4;
+    int rbit_descre;
+    int i, j;
+
+    if (descre < 0 || descre > 63) {
+      return false;
+    }
+    descre4 = descre / 4;
+    rbit_descre = descre % 4;
+    i = descre4;
+    j = rbit_descre;
+    rdmap[i] =| 1 << (j * 2 +1); //最大不一致点に相当するr bitを1にする
+    // 最大不一致点より上位のr bitを0にする
+    j++;
+    for ( ; j < 4; j++){
+      rdmap[i] =& ~(1 << (j * 2 + 1);
+    }
+    i++;
+    for ( ; i < SMAPSIZE; i++){
+      rdmap[i] = 0;
+    }
+    return true;
+  }
+
+  // r_map: ROM IDの取得
+  // rdmap[SMAPSIZE]からr_mapを取り出す
+  int get_r()
+  {
+    int i,j,rp;
+    if (RD_SIZE != SMAPSIZE*2) {
+      return false;
+    }
+    for(i = 0, rp = 0; i < SMAPSIZE; i += 2, rp++) {
+       for(j = 0; j < 4; j++){
+          if(rdmap[i] & (1 << ( j * 2 + 1))){
+            r_map[rp] =| (1 << j);
+          }
+       }
+       for(j = 0; j < 4; j++) {
+          if(rdmap[i + 1] & (1 << (j * 2 + 1))) {
+            r_map[rp] =| (1 << (j+4));      
+          }
+       }
+    }
+   return true;
+  }
+
+  // d_map: 不一致ビットのマップ
+  // rdmap[SMAPSIZE]からr_mapを取り出す
+  int get_d()
+  {
+    int i,j,rp;
+    if (RD_SIZE != SMAPSIZE*2) {
+      return false;
+    }
+    for(i = 0, rp = 0; i < SMAPSIZE; i += 2, rp++) {
+       for(j = 0; j < 4; j++){
+          if(rdmap[i] & (1 << (j * 2))){
+            d_map[rp] =| (1 << j);
+          }
+       }
+       for(j = 0; j < 4; j++) {
+          if(rdmap[i + 1] & (1 << (j * 2))) {
+            d_map[rp] =| (1 << (j+4));      
+          }
+       }
+    }
+    return true;
+  }
+
+  // r_map, d_mapからrdmap[SMAPSIZE]を作る
+  int merge_rdmap()
+  {
+    int i, j, rp;
+    if (RD_SIZE != SMAPSIZE*2) {
+      return false;
+    }
+    for(rp = 0; rp < RD_SIZE; rp++){
+      for (j = 0; j < 4; j++) {
+        if(d_map[rp] & (1<<j)) {
+          rdmap[rp*2] |= (1 << (j*2));
+        }
+        if(r_map[rp] & (1<<j) {
+          rdmap[rp*2] |= (1 << (j*2+1));
+        }
+      }
+      for (j = 0; j < 4; j++) {
+        if(d_map[rp] & (1<<(j+4)) {
+          rdmap[rp*2+1] |= (1 << (j*2));
+        }
+        if(r_map[rp] & (1<<(j+4)) {
+          rdmap[rp*2+1] |= (1 << (j*2+1));
+        }
+      }
+    }
+    return true;
+  }
+#Ifdef TEST
+uint8_t rd[SMAPSIZE];
+
+ void id_set_test(rd[SMAPSIZE])
+ {
+  int i;
+  for (i = 0; i < SMAPSIZE; i++){
+    rdmap[i] = rd[i];
+  }
+ }
+ 
+ void dump_rdmap()
+ {
+  int i;
+  for (i = 0; i < SMAPSIZE; i++){
+    Serial.print(rdmap[i],BIN);
+    if ((i % 4) == 0){
+      Serial.println("");
+    } else {
+      Serial.print(" ");
+    }
+  }
+  Serial.println("");
+ }
+
+  void dump_r_map()
+  {
+    int i;
+    for (i = 0; i < RD_SIZE; i++) {
+      Serial.print(r_map[i],BIN);
+    if ((i % 4) == 0){
+      Serial.println("");
+    } else {
+      Serial.print(" ");
+    }
+    Serial.println("");
+  }
+
+  void dump_d_map()
+  {
+    int i;
+    for (i = 0; i < RD_SIZE; i++) {
+      Serial.print(d_map[i],BIN);
+    if ((i % 4) == 0){
+      Serial.println("");
+    } else {
+      Serial.print(" ");
+    }
+    Serial.println("");
+  }
+
+  void dump_romid()
+  {
+    int i;
+    for (i = 0; i < RD_SIZE; i++) {
+      Serial.print(r_map[i],HEX);
+    }
+    Serial.println("");
+  }
+
+ ////
+ void test0(){
+  int i;
+  for (i=0; i<SMAPSIZE; i++){
+    rdmap[i] = 0;
+  } 
+  rdmap[SMAPSIZE-1] =0b11000000;  // BusError!
+  if (discre() ==  DISCRE_BUSERR) {
+    Serial.println("TEST0 Ok");
+  } else {
+    Serial.println("TEST0 NG);
+  }
+ }
+ 
+  void test1(){
+  int i;
+  for (i=0; i<SMAPSIZE; i++){
+    rdmap[i] = 0;
+  } 
+  rdmap[0] = 0b11000000;
+  rdmap[1] = 0b11111111;
+  
+  if (discre() ==  DISCRE_BUSERR) {
+    Serial.println("TEST1 Ok");
+  } else {
+    Serial.println("TEST1 NG);
+  }
+ }
+#endif
+}
+
 uint8_t write_1wire(uint8_t wdata)
 {
   if(wdata == SIF_COMMAND) {　//DS2480Bのコマンドモードへの移行ワード（0xe3)を1-wireへ送る場合は0xe3を2回送る
@@ -208,26 +566,6 @@ uint8_t write_1wire(uint8_t wdata)
   }
   return(Serial1.write(wdata));
 }
-
-
-uint8_t * search_acceler()
-{
-    uint8_t retc;
-    int i;
-    
-    retc = bus_reset();
-    Serial2.write(SIF_DATA);    // data mode -> send 1-wire bus
-    write_1wire(ROM_SEARCH);    // 1-w CMD: Search ROM cmd
-    Serial2.write(SIF_COMMAND); // command mode
-    Serial2.write(SIF_ACCON);   // DS2480B Acceleratator ON
-    Serial2.write(SIF_DATA);    // data mode -> read 1-wire bus
-    Serial2.flush();
-    for (i = 0; i < ACCEL_WORDS; i++) {
-      retc = write_1wire(0); //アクセラレータ初期データ
-    }
-    
-}
-
 
 uint8_t wdata = 0;
 void loop() {
