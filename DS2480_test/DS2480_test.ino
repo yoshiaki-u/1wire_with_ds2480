@@ -222,8 +222,7 @@ class confDS2480
     uint8_t RXPIN;
     uint8_t TXPIN;
   public:
-    resetconf()
-    {
+    void resetconf() {
       PDSRC = 0b00010000;
       PPD   = 0b00100000;
       SPUD  = 0b00110000;
@@ -231,18 +230,17 @@ class confDS2480
       DSOWRT= 0b01010000;
       LOAD  = 0b01100000;
       RBR   = 0b01110000;
-
-    };
+    }
     
     confDS2480(
-      const HardwareSerial *pDS2480,
+      HardwareSerial *pDS2480,
       const uint8_t rxPin,
       const uint8_t txPin)
     {
       RXPIN = rxPin;
       TXPIN = txPin;
       ds2480_master_reset();
-      resetconf();
+      //resetconf();
       pSrDS2480 = pDS2480;
       pSrDS2480->begin(DEFAULT_BAUD,SERIAL_8N1,RXPIN,TXPIN);
       while(! *pSrDS2480);
@@ -268,18 +266,18 @@ uint8_t confDS2480::setBaud(int b){
       confw = SIF_RBR115200B;
       break;
     default:
-      return FALSE;
+      return false;
   }
   retb = writeread1(confw);
   if (retb == (confw & 0xfe)) {
-    pSrDS2480->end;
+    pSrDS2480->end();
     delay(10);
     pSrDS2480->begin(b,SERIAL_8N1,RXPIN,TXPIN);
     while(! *pSrDS2480);
     bus_reset();
     return(retb);
   } else {
-    return FALSE;
+    return false;
   }
 }
 
@@ -335,7 +333,7 @@ class SearchMap
       for (j = 0; j < 4; j++) {
         result <<= 1;
         if (rdmap[i] & rbit) {
-          result |= 1
+          result |= 1;
         }
         rbit >>=2; // 7 -> 5 -> 3 -> 1
       }
@@ -382,11 +380,11 @@ class SearchMap
     rbit_descre = descre % 4;
     i = descre4;
     j = rbit_descre;
-    rdmap[i] =| 1 << (j * 2 +1); //最大不一致点に相当するr bitを1にする
+    rdmap[i] |= 1 << (j * 2 +1); //最大不一致点に相当するr bitを1にする
     // 最大不一致点より上位のr bitを0にする
     j++;
     for ( ; j < 4; j++){
-      rdmap[i] =& ~(1 << (j * 2 + 1);
+      rdmap[i] &= ~(1 << (j * 2 + 1));
     }
     i++;
     for ( ; i < SMAPSIZE; i++){
@@ -406,12 +404,12 @@ class SearchMap
     for(i = 0, rp = 0; i < SMAPSIZE; i += 2, rp++) {
        for(j = 0; j < 4; j++){
           if(rdmap[i] & (1 << ( j * 2 + 1))){
-            r_map[rp] =| (1 << j);
+            r_map[rp] |= (1 << j);
           }
        }
        for(j = 0; j < 4; j++) {
           if(rdmap[i + 1] & (1 << (j * 2 + 1))) {
-            r_map[rp] =| (1 << (j+4));      
+            r_map[rp] |= (1 << (j+4));      
           }
        }
     }
@@ -429,12 +427,12 @@ class SearchMap
     for(i = 0, rp = 0; i < SMAPSIZE; i += 2, rp++) {
        for(j = 0; j < 4; j++){
           if(rdmap[i] & (1 << (j * 2))){
-            d_map[rp] =| (1 << j);
+            d_map[rp] |= (1 << j);
           }
        }
        for(j = 0; j < 4; j++) {
           if(rdmap[i + 1] & (1 << (j * 2))) {
-            d_map[rp] =| (1 << (j+4));      
+            d_map[rp] |= (1 << (j+4));      
           }
        }
     }
@@ -453,33 +451,33 @@ class SearchMap
         if(d_map[rp] & (1<<j)) {
           rdmap[rp*2] |= (1 << (j*2));
         }
-        if(r_map[rp] & (1<<j) {
+        if(r_map[rp] & (1<<j)) {
           rdmap[rp*2] |= (1 << (j*2+1));
         }
       }
       for (j = 0; j < 4; j++) {
-        if(d_map[rp] & (1<<(j+4)) {
+        if(d_map[rp] & (1<<(j+4)) ){
           rdmap[rp*2+1] |= (1 << (j*2));
         }
-        if(r_map[rp] & (1<<(j+4)) {
+        if(r_map[rp] & (1<<(j+4)) ){
           rdmap[rp*2+1] |= (1 << (j*2+1));
         }
       }
     }
     return true;
   }
-#Ifdef TEST
+
 uint8_t rd[SMAPSIZE];
 
- void id_set_test(rd[SMAPSIZE])
- {
-  int i;
-  for (i = 0; i < SMAPSIZE; i++){
-    rdmap[i] = rd[i];
+  void id_set_test(uint8_t rd[])
+  {
+    int i;
+    for (i = 0; i < SMAPSIZE; i++){
+      rdmap[i] = rd[i];
+    }
   }
- }
  
- void dump_rdmap()
+ void dump_rdmap(void)
  {
   int i;
   for (i = 0; i < SMAPSIZE; i++){
@@ -498,12 +496,13 @@ uint8_t rd[SMAPSIZE];
     int i;
     for (i = 0; i < RD_SIZE; i++) {
       Serial.print(r_map[i],BIN);
-    if ((i % 4) == 0){
+      if ((i % 4) == 0){
+        Serial.println("");
+      } else {
+        Serial.print(" ");
+      }
       Serial.println("");
-    } else {
-      Serial.print(" ");
     }
-    Serial.println("");
   }
 
   void dump_d_map()
@@ -511,12 +510,13 @@ uint8_t rd[SMAPSIZE];
     int i;
     for (i = 0; i < RD_SIZE; i++) {
       Serial.print(d_map[i],BIN);
-    if ((i % 4) == 0){
+      if ((i % 4) == 0){
+        Serial.println("");
+      } else {
+        Serial.print(" ");
+      }
       Serial.println("");
-    } else {
-      Serial.print(" ");
     }
-    Serial.println("");
   }
 
   void dump_romid()
@@ -538,36 +538,26 @@ uint8_t rd[SMAPSIZE];
   if (discre() ==  DISCRE_BUSERR) {
     Serial.println("TEST0 Ok");
   } else {
-    Serial.println("TEST0 NG);
+    Serial.println("TEST0 NG");
   }
  }
  
   void test1(){
-  int i;
-  for (i=0; i<SMAPSIZE; i++){
-    rdmap[i] = 0;
-  } 
-  rdmap[0] = 0b11000000;
-  rdmap[1] = 0b11111111;
+    int i;
+    for (i=0; i<SMAPSIZE; i++){
+      rdmap[i] = 0;
+    } 
+    rdmap[0] = 0b11000000;
+    rdmap[1] = 0b11111111;
   
-  if (discre() ==  DISCRE_BUSERR) {
-    Serial.println("TEST1 Ok");
-  } else {
-    Serial.println("TEST1 NG);
+    if (discre() ==  DISCRE_BUSERR) {
+      Serial.println("TEST1 Ok");
+    } else {
+      Serial.println("TEST1 NG");
+    }
   }
- }
-#endif
-}
+};
 
-uint8_t write_1wire(uint8_t wdata)
-{
-  if(wdata == SIF_COMMAND) {　//DS2480Bのコマンドモードへの移行ワード（0xe3)を1-wireへ送る場合は0xe3を2回送る
-    Serial1.write(wdata);
-  }
-  return(Serial1.write(wdata));
-}
-
-uint8_t wdata = 0;
 void loop() {
   uint8_t out;
   delay(100);
